@@ -12,21 +12,25 @@ WATCH_FOLDER = r"C:\PrintDrop"
 PRINTED_FOLDER = r"C:\PrintDrop\Printed"
 
 # Supported file types for printing
-SUPPORTED_EXTENSIONS = {'.pdf', '.doc', '.docx', '.txt', '.xlsx', '.rtf', '.csv', '.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tif', '.tiff'}
+SUPPORTED_EXTENSIONS = {
+    '.pdf', '.doc', '.docx', '.txt', '.xlsx', '.rtf',
+    '.csv', '.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tif', '.tiff'
+}
 
 # Ensure Printed folder exists
 os.makedirs(PRINTED_FOLDER, exist_ok=True)
+
 
 def log_message(message):
     """Log messages with timestamp"""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{timestamp}] {message}")
 
+
 def cleanup_printed_folder(folder_path, max_age_seconds=3600):
     """Delete files older than a given age (in seconds) from the Printed folder."""
     now = time.time()
     deleted_files = 0
-
     try:
         for filename in os.listdir(folder_path):
             file_path = os.path.join(folder_path, filename)
@@ -41,7 +45,7 @@ def cleanup_printed_folder(folder_path, max_age_seconds=3600):
                         log_message(f"Error deleting {filename}: {e}")
     except Exception as e:
         log_message(f"Error during cleanup of Printed folder: {e}")
-    
+
     if deleted_files:
         log_message(f"Cleanup complete. Deleted {deleted_files} old files.")
 
@@ -49,66 +53,52 @@ def cleanup_printed_folder(folder_path, max_age_seconds=3600):
 def is_file_ready(filepath):
     """Check if file is ready for processing (not being written to)"""
     try:
-        # For network files, use a less strict approach
-        # Check if we can read the file and if it has content
         if os.path.getsize(filepath) == 0:
-            return False  # Empty file, might still be copying
-        
-        # Try to read the first few bytes to ensure file is accessible
+            return False
         with open(filepath, 'rb') as f:
-            f.read(1024)  # Try to read first 1KB
+            f.read(1024)
         return True
     except (IOError, PermissionError, OSError):
         return False
+
 
 def print_pdf_with_sumatra(filepath, copies=1, printer_name=None):
     """Print PDF using SumatraPDF command line"""
     try:
         if printer_name is None:
             printer_name = get_default_printer()
-        
         filename = os.path.basename(filepath)
         sumatra_path = r"C:\PrintDrop\tools\SumatraPDF.exe"
-        
         if not os.path.exists(sumatra_path):
             log_message(f"SumatraPDF not found at {sumatra_path}")
             return False
-        
         import subprocess
         success_count = 0
-        
         for copy_num in range(copies):
             try:
-                # SumatraPDF command: -print-to "printer" -silent filepath
                 cmd = [sumatra_path, '-print-to', printer_name, '-silent', filepath]
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-                
                 if result.returncode == 0:
                     log_message(f"SumatraPDF print successful for copy {copy_num + 1}: {filename}")
                     success_count += 1
                 else:
                     log_message(f"SumatraPDF print failed for copy {copy_num + 1}: {filename} - {result.stderr}")
-                    
             except Exception as e:
                 log_message(f"SumatraPDF error for copy {copy_num + 1}: {e}")
-        
         return success_count > 0
-        
     except Exception as e:
         log_message(f"SumatraPDF printing error: {e}")
         return False
+
 
 def print_word_with_com(filepath, copies=1):
     """Print Word document using COM automation"""
     try:
         filename = os.path.basename(filepath)
-        
         import subprocess
         success_count = 0
-        
         for copy_num in range(copies):
             try:
-                # PowerShell script to print Word document via COM
                 ps_script = f'''
                 try {{
                     $word = New-Object -ComObject Word.Application
@@ -124,206 +114,154 @@ def print_word_with_com(filepath, copies=1):
                     Write-Error $_.Exception.Message
                 }}
                 '''
-                
-                result = subprocess.run(['powershell', '-Command', ps_script], 
-                                      capture_output=True, text=True, timeout=60)
-                
+                result = subprocess.run(['powershell', '-Command', ps_script],
+                                        capture_output=True, text=True, timeout=60)
                 if result.returncode == 0 and "Success" in result.stdout:
                     log_message(f"Word COM print successful for copy {copy_num + 1}: {filename}")
                     success_count += 1
                 else:
                     log_message(f"Word COM print failed for copy {copy_num + 1}: {filename} - {result.stderr}")
-                    
             except Exception as e:
                 log_message(f"Word COM error for copy {copy_num + 1}: {e}")
-        
         return success_count > 0
-        
     except Exception as e:
         log_message(f"Word COM printing error: {e}")
         return False
+
 
 def print_with_specific_app(filepath, copies=1, printer_name=None):
     """Print using specific applications for different file types"""
     try:
         if printer_name is None:
             printer_name = get_default_printer()
-        
         filename = os.path.basename(filepath)
         file_ext = os.path.splitext(filepath)[1].lower()
-        
+
         if file_ext == '.pdf':
-            # Use SumatraPDF for reliable PDF printing
             log_message(f"Using SumatraPDF for {filename}")
             return print_pdf_with_sumatra(filepath, copies, printer_name)
-            
         elif file_ext in {'.doc', '.docx'}:
-            # Use Word COM automation
             log_message(f"Using Word COM automation for {filename}")
             return print_word_with_com(filepath, copies)
-            
         elif file_ext in {'.txt', '.csv'}:
-            # Use PowerShell Out-Printer - this works perfectly
             log_message(f"Using PowerShell Out-Printer for {filename}")
             import subprocess
             success_count = 0
-            
             for copy_num in range(copies):
                 try:
                     ps_cmd = f'Get-Content "{filepath}" | Out-Printer -Name "{printer_name}"'
-                    result = subprocess.run(['powershell', '-Command', ps_cmd], 
-                                          capture_output=True, text=True, timeout=60)
-                    
+                    result = subprocess.run(['powershell', '-Command', ps_cmd],
+                                            capture_output=True, text=True, timeout=60)
                     if result.returncode == 0:
                         log_message(f"PowerShell print successful for copy {copy_num + 1}: {filename}")
                         success_count += 1
                     else:
                         log_message(f"PowerShell print failed for copy {copy_num + 1}: {filename}")
-                        
                 except Exception as e:
                     log_message(f"PowerShell error for copy {copy_num + 1}: {e}")
-            
             return success_count > 0
-            
         else:
-            # For other file types, return False to try other methods
             log_message(f"No specific app handler for {file_ext} files")
             return False
-        
     except Exception as e:
         log_message(f"Specific app printing error: {e}")
         return False
+
 
 def print_with_powershell(filepath, copies=1, printer_name=None):
     """Simple PowerShell printing - works great for text files"""
     try:
         if printer_name is None:
             printer_name = get_default_printer()
-        
         filename = os.path.basename(filepath)
         file_ext = os.path.splitext(filepath)[1].lower()
-        
-        # Only use PowerShell for text files where it works reliably
         if file_ext not in {'.txt', '.csv'}:
             return False
-        
         import subprocess
         success_count = 0
-        
         for copy_num in range(copies):
             try:
                 ps_cmd = f'Get-Content "{filepath}" | Out-Printer -Name "{printer_name}"'
-                result = subprocess.run(['powershell', '-Command', ps_cmd], 
-                                      capture_output=True, text=True, timeout=60)
-                
+                result = subprocess.run(['powershell', '-Command', ps_cmd],
+                                        capture_output=True, text=True, timeout=60)
                 if result.returncode == 0:
                     log_message(f"PowerShell print successful for copy {copy_num + 1}: {filename}")
                     success_count += 1
                 else:
                     log_message(f"PowerShell print failed for copy {copy_num + 1}: {filename} - {result.stderr}")
-                    
             except Exception as e:
                 log_message(f"PowerShell print error for copy {copy_num + 1}: {e}")
-        
         return success_count > 0
-        
     except Exception as e:
         log_message(f"PowerShell printing error: {e}")
         return False
+
 
 def print_file_fallback(filepath, copies=1):
     """Enhanced fallback printing methods"""
     try:
         filename = os.path.basename(filepath)
         file_ext = os.path.splitext(filepath)[1].lower()
-        
-        # Try PowerShell method first
         if print_with_powershell(filepath, copies):
             return True
-        
-        # Try direct printer method for text files
         if file_ext in {'.txt', '.csv'}:
             import subprocess
             success_count = 0
             for copy_num in range(copies):
                 try:
-                    # Try direct printing to default printer
-                    result = subprocess.run(['print', '/D:' + get_default_printer(), filepath], 
-                                          capture_output=True, timeout=30)
+                    result = subprocess.run(['print', '/D:' + get_default_printer(), filepath],
+                                            capture_output=True, timeout=30)
                     if result.returncode == 0:
                         log_message(f"Direct print successful for copy {copy_num + 1}: {filename}")
                         success_count += 1
                     else:
-                        # Try copying file to printer port as last resort
-                        result2 = subprocess.run(['copy', filepath, 'PRN'], 
-                                                capture_output=True, shell=True, timeout=30)
+                        result2 = subprocess.run(['copy', filepath, 'PRN'],
+                                                 capture_output=True, shell=True, timeout=30)
                         if result2.returncode == 0:
                             log_message(f"Raw print successful for copy {copy_num + 1}: {filename}")
                             success_count += 1
                 except Exception as e:
                     log_message(f"Direct print error for copy {copy_num + 1}: {e}")
             return success_count > 0
-        
         return False
-        
     except Exception as e:
         log_message(f"Fallback printing error: {e}")
         return False
 
+
 def print_file(filepath):
     """Print the specified file with custom settings"""
     try:
-        # Check if it's a supported file type
         file_ext = os.path.splitext(filepath)[1].lower()
         if file_ext not in SUPPORTED_EXTENSIONS:
             log_message(f"Skipping unsupported file type: {filepath}")
             return False
-        
-        # Get print settings for this file
         settings = get_print_settings(filepath)
-        
         filename = os.path.basename(filepath)
         log_message(f"Print settings for {filename}: {settings}")
-        
-        # For multiple copies, print the file multiple times
-        # (Windows ShellExecute doesn't directly support copy count)
         copies = settings.get('copies', 1)
-        
-        # Try specific application method first
+
         log_message(f"Attempting specific application printing for {filename}")
         if print_with_specific_app(filepath, copies):
             return True
-            
-        # Try PowerShell method for text files
         log_message(f"Specific app method failed, trying PowerShell for {filename}")
         if print_with_powershell(filepath, copies):
             return True
-            
-        # Fall back to original ShellExecute method
+
         log_message(f"PowerShell method failed, trying ShellExecute for {filename}")
         success_count = 0
         for copy_num in range(copies):
             try:
-                # Print the file using Windows shell
-                win32api.ShellExecute(
-                    0,
-                    "print",
-                    filepath,
-                    None,
-                    ".",
-                    0
-                )
+                win32api.ShellExecute(0, "print", filepath, None, ".", 0)
                 success_count += 1
                 if copies > 1:
                     log_message(f"Sent copy {copy_num + 1}/{copies} to printer: {filename}")
             except Exception as e:
                 log_message(f"Error printing copy {copy_num + 1} of {filename}: {e}")
-                # Try enhanced fallback method for certain file types
-                if copy_num == 0:  # Only try fallback on first attempt
+                if copy_num == 0:
                     log_message(f"Attempting enhanced fallback printing method for {filename}")
                     if print_file_fallback(filepath, copies):
                         return True
-        
         if success_count > 0:
             if copies == 1:
                 log_message(f"Sent to printer: {filename}")
@@ -333,10 +271,10 @@ def print_file(filepath):
         else:
             log_message(f"Failed to print any copies of: {filename}")
             return False
-            
     except Exception as e:
         log_message(f"Error printing {filepath}: {e}")
         return False
+
 
 def get_default_printer():
     """Get the default printer name"""
@@ -345,21 +283,18 @@ def get_default_printer():
     except Exception:
         return "No default printer"
 
+
 def parse_filename_settings(filename):
     """Parse print settings from filename format: filename_copies3_pages1-5.pdf"""
     settings = {'copies': 1, 'pages': None}
-    
-    # Look for copies setting: _copies3_
     copies_match = re.search(r'_copies(\d+)_', filename.lower())
     if copies_match:
         settings['copies'] = int(copies_match.group(1))
-    
-    # Look for pages setting: _pages1-5_ or _pages1,3,5_
     pages_match = re.search(r'_pages([0-9,-]+)_', filename.lower())
     if pages_match:
         settings['pages'] = pages_match.group(1)
-    
     return settings
+
 
 def load_config_file(filepath):
     """Load print configuration from .config file"""
@@ -372,29 +307,19 @@ def load_config_file(filepath):
             log_message(f"Error reading config file {config_path}: {e}")
     return None
 
+
 def get_print_settings(filepath):
     """Get print settings for a file (config file > filename > defaults)"""
-    # Default settings
-    settings = {
-        'copies': 1,
-        'pages': None,  # None means all pages
-        'duplex': False,
-        'color': True,
-        'quality': 'normal'  # draft, normal, high
-    }
-    
-    # Try to load from config file first
+    settings = {'copies': 1, 'pages': None, 'duplex': False, 'color': True, 'quality': 'normal'}
     config_settings = load_config_file(filepath)
     if config_settings:
         settings.update(config_settings)
         return settings
-    
-    # Fall back to filename-based settings
     filename = os.path.basename(filepath)
     filename_settings = parse_filename_settings(filename)
     settings.update(filename_settings)
-    
     return settings
+
 
 def main():
     """Main monitoring loop"""
@@ -402,86 +327,81 @@ def main():
     log_message(f"Watching folder: {WATCH_FOLDER}")
     log_message(f"Default printer: {get_default_printer()}")
     log_message(f"Supported file types: {', '.join(sorted(SUPPORTED_EXTENSIONS))}")
-    
-    already_processed = set()
+
+    processed_files = {}
     last_cleanup = 0
-    CLEANUP_INTERVAL = 600  # 10 minutes in seconds
+    CLEANUP_INTERVAL = 600  # 10 minutes
 
     while True:
         try:
-            # Get all files in the watch folder (excluding subdirectories)
             if not os.path.exists(WATCH_FOLDER):
                 log_message(f"Watch folder does not exist: {WATCH_FOLDER}")
                 time.sleep(10)
                 continue
-                
-            files = []
-            for item in os.listdir(WATCH_FOLDER):
-                item_path = os.path.join(WATCH_FOLDER, item)
-                if os.path.isfile(item_path) and not item.startswith('.'):
-                    files.append(item_path)
-            
+
+            files = [os.path.join(WATCH_FOLDER, f)
+                     for f in os.listdir(WATCH_FOLDER)
+                     if os.path.isfile(os.path.join(WATCH_FOLDER, f)) and not f.startswith('.')]
+
             for filepath in files:
                 filename = os.path.basename(filepath)
-                
-                # Skip if already processed
-                if filepath in already_processed:
-                    continue
-                
-                # Check if file is ready (not being written to)
                 if not is_file_ready(filepath):
                     log_message(f"File not ready yet: {filename}")
                     continue
-                
-                log_message(f"New file detected: {filename}")
-                
-                # Skip .config files - they're metadata, not printable files
-                if filename.endswith('.config'):
-                    already_processed.add(filepath)
+
+                mtime = os.path.getmtime(filepath)
+                last_mtime = processed_files.get(filepath)
+
+                # Skip unchanged files only
+                if last_mtime == mtime:
                     continue
-                
-                # Attempt to print the file
+
+                log_message(f"Processing new/updated file: {filename}")
+
+                if filename.endswith('.config'):
+                    processed_files[filepath] = mtime
+                    continue
+
                 if print_file(filepath):
-                    # Move to printed folder after successful printing
                     try:
                         destination = os.path.join(PRINTED_FOLDER, filename)
-                        # If file already exists in Printed folder, add timestamp
                         if os.path.exists(destination):
                             name, ext = os.path.splitext(filename)
                             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                             destination = os.path.join(PRINTED_FOLDER, f"{name}_{timestamp}{ext}")
-                        
                         shutil.move(filepath, destination)
                         log_message(f"Moved to printed folder: {os.path.basename(destination)}")
-                        
-                        # Also move associated config file if it exists
+
                         config_path = filepath + '.config'
                         if os.path.exists(config_path):
                             config_dest = destination + '.config'
                             shutil.move(config_path, config_dest)
                             log_message(f"Moved config file: {os.path.basename(config_dest)}")
-                            
+
                     except Exception as e:
                         log_message(f"Error moving file {filename}: {e}")
                 else:
                     log_message(f"Failed to print: {filename}")
-                
-                # Mark as processed regardless of success/failure
-                already_processed.add(filepath)
-            
+
+                processed_files[filepath] = mtime
+
+            # Forget files that no longer exist
+            for old_path in list(processed_files.keys()):
+                if not os.path.exists(old_path):
+                    del processed_files[old_path]
+
         except KeyboardInterrupt:
             log_message("Auto-print service stopped by user")
             break
         except Exception as e:
             log_message(f"Unexpected error: {e}")
 
-        # Run cleanup every 10 minutes
         if time.time() - last_cleanup > CLEANUP_INTERVAL:
-            cleanup_printed_folder(PRINTED_FOLDER, max_age_seconds=3600)  # 1 hour = 3600 seconds
+            cleanup_printed_folder(PRINTED_FOLDER, max_age_seconds=3600)
             last_cleanup = time.time()
-        
-        # Wait before checking again
+
         time.sleep(5)
+
 
 if __name__ == "__main__":
     main()
